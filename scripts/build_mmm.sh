@@ -12,5 +12,5 @@ rpm -i mysql-mmm-2.2.1-2.el6.src.rpm
 /bin/cp -f /usr/local/src/build/mysql-mmm.spec.patch $RPMBUILDROOT/SPECS/
 /bin/cp -f /usr/local/src/build/mmm_aws.patch $RPMBUILDROOT/SOURCES/
 /bin/cp -f /usr/local/src/build/mmm_bin_aws.patch $RPMBUILDROOT/SOURCES/
-cd $RPMBUILDROOT/SPECS && patch -p1 < /mysql-mmm.spec.patch
+cd $RPMBUILDROOT/SPECS && patch -p1 < mysql-mmm.spec.patch
 rpmbuild -bb $RPMBUILDROOT/SPECS/mysql-mmm.spec
