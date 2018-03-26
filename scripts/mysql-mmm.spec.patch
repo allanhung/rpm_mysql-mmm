@@ -4,7 +4,7 @@
  Name: mysql-mmm
  Version: 2.2.1
 -Release: 2%{?dist}
-+Release: 3%{?dist}
++Release: 4%{?dist}
  Summary: Multi-Master Replication Manager for MySQL
  License: GPLv2
  URL: http://mysql-mmm.org

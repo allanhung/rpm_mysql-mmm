@@ -1,75 +1,102 @@
---- mysql-mmm-2.2.1/bin/agent/check_ip	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/bin/agent/check_ip	2017-11-16 04:31:43.932026504 -0500
-@@ -6,18 +6,19 @@
+--- mysql-mmm-2.2.1/bin/agent/check_ip	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/bin/agent/check_ip	2017-12-26 03:47:05.832114982 +0000
+@@ -6,8 +6,8 @@
  use MMM::Agent::Helpers::Actions;
  
  # Check arguments
 -if (scalar(@ARGV) != 3) {
 -	print "Usage: $0 <config_file> <interface> <ip>\n\n";
 +if (scalar(@ARGV) != 4) {
-+	print "Usage: $0 <config_file> <interface> <eni> <ip>\n\n";
++	print "Usage: $0 <config_file> <interface> <ip> <eni>\n\n";
  	exit(1);
  }
  
- # Fetch arguments
+@@ -15,9 +15,10 @@
  my $config_file = shift;
  my $if = shift;
-+my $eni = shift;
  my $ip = shift;
++my $eni = shift;
  
  # Finally do the work
 -MMM::Agent::Helpers::Actions::check_ip($if, $ip);
-+MMM::Agent::Helpers::Actions::check_ip($if, $eni, $ip);
++MMM::Agent::Helpers::Actions::check_ip($if, $ip, $eni);
  
  __END__
  
---- mysql-mmm-2.2.1/bin/agent/clear_ip	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/bin/agent/clear_ip	2017-11-16 04:32:19.554026020 -0500
-@@ -6,18 +6,19 @@
+@@ -31,7 +32,7 @@
+ 
+ =head1 USAGE
+ 
+-check_ip <interface> <ip>
++check_ip <interface> <ip> <eni>
+ 
+ =head1 EXAMPLE
+ 
+--- mysql-mmm-2.2.1/bin/agent/clear_ip	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/bin/agent/clear_ip	2017-12-26 03:48:04.599114184 +0000
+@@ -6,8 +6,8 @@
  use MMM::Agent::Helpers::Actions;
  
  # Check arguments
 -if (scalar(@ARGV) != 3) {
 -	print "Usage: $0 <config_file> <interface> <ip>\n\n";
 +if (scalar(@ARGV) != 4) {
-+	print "Usage: $0 <config_file> <interface> <eni> <ip>\n\n";
++	print "Usage: $0 <config_file> <interface> <ip> <eni>\n\n";
  	exit(1);
  }
  
- # Fetch arguments
+@@ -15,9 +15,10 @@
  my $config_file = shift;
  my $if = shift;
-+my $eni = shift;
  my $ip = shift;
++my $eni = shift;
  
  # Finally do the work
 -MMM::Agent::Helpers::Actions::clear_ip($if, $ip);
-+MMM::Agent::Helpers::Actions::clear_ip($if, $eni, $ip);
++MMM::Agent::Helpers::Actions::clear_ip($if, $ip, $eni);
  
  __END__
  
---- mysql-mmm-2.2.1/bin/agent/configure_ip	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/bin/agent/configure_ip	2017-11-16 04:32:49.035025619 -0500
-@@ -6,18 +6,19 @@
+@@ -31,7 +32,7 @@
+ 
+ =head1 USAGE
+ 
+-clear_ip <interface> <ip>
++clear_ip <interface> <ip> <eni>
+ 
+ =head1 EXAMPLE
+ 
+--- mysql-mmm-2.2.1/bin/agent/configure_ip	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/bin/agent/configure_ip	2017-12-26 03:48:41.106113687 +0000
+@@ -6,8 +6,8 @@
  use MMM::Agent::Helpers::Actions;
  
  # Check arguments
 -if (scalar(@ARGV) != 3) {
 -	print "Usage: $0 <config_file> <interface> <ip>\n\n";
 +if (scalar(@ARGV) != 4) {
-+	print "Usage: $0 <config_file> <interface> <eni> <ip>\n\n";
++	print "Usage: $0 <config_file> <interface> <ip> <eni>\n\n";
  	exit(1);
  }
  
- # Fetch arguments
+@@ -15,9 +15,10 @@
  my $config_file = shift;
  my $if = shift;
-+my $eni = shift;
  my $ip = shift;
++my $eni = shift;
  
  # Finally do the work
 -MMM::Agent::Helpers::Actions::configure_ip($if, $ip);
-+MMM::Agent::Helpers::Actions::configure_ip($if, $eni, $ip);
++MMM::Agent::Helpers::Actions::configure_ip($if, $ip, $eni);
  
  __END__
+ 
+@@ -31,7 +32,7 @@
+ 
+ =head1 USAGE
+ 
+-configure_ip <interface> <ip>
++configure_ip <interface> <ip> <eni>
+ 
+ =head1 EXAMPLE
  

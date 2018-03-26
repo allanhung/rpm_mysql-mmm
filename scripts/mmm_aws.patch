@@ -1,5 +1,5 @@
---- mysql-mmm-2.2.1/lib/Agent/Agent.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Agent/Agent.pm	2017-11-15 08:50:59.957989200 -0500
+--- mysql-mmm-2.2.1/lib/Agent/Agent.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Agent/Agent.pm	2017-12-26 03:13:01.604142761 +0000
 @@ -31,6 +31,7 @@
  	ip					=> '$',
  	port				=> '$',
@@ -13,7 +13,7 @@
  		my $role_info = $main::config->{role}->{$role};
  		foreach my $ip (@{$role_info->{ips}}) {
 -			my $res = MMM::Agent::Helpers::check_ip($self->interface, $ip);
-+			my $res = MMM::Agent::Helpers::check_ip($self->interface, $self->eni, $ip);
++			my $res = MMM::Agent::Helpers::check_ip($self->interface, $ip, $self->eni);
  			my $ret = $? >> 8;
  			return "ERROR: Could not check if IP is configured: $res" if ($ret == 255);
  			next unless ($ret == 0);
@@ -22,7 +22,7 @@
  			}
  			next if ($role_valid);
 -			my $res = MMM::Agent::Helpers::check_ip($self->interface, $ip);
-+			my $res = MMM::Agent::Helpers::check_ip($self->interface, $self->eni, $ip);
++			my $res = MMM::Agent::Helpers::check_ip($self->interface, $ip, $self->eni);
  			my $ret = $? >> 8;
  			return "ERROR: Could not check if IP is configured: $res" if ($ret == 255);
  			next if ($ret == 1);
@@ -34,14 +34,125 @@
  	$self->mode				($host->{mode});
  	$self->mysql_port		($host->{mysql_port});
  	$self->mysql_user		($host->{agent_user});
---- mysql-mmm-2.2.1/lib/Agent/Helpers/Actions.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Agent/Helpers/Actions.pm	2017-11-16 03:27:13.671079097 -0500
+--- mysql-mmm-2.2.1/lib/Agent/Helpers.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Agent/Helpers.pm	2017-12-26 02:50:27.791161158 +0000
+@@ -18,7 +18,7 @@
+ 
+ =over 4
+ 
+-=item check_ip($if, $ip)
++=item check_ip($if, $ip, $eni)
+ 
+ Check if the IP $ip is configured on interface $if.
+ 
+@@ -26,14 +26,15 @@
+ 
+ =cut
+ 
+-sub check_ip($$) {
+-	my $if = shift;
+-	my $ip = shift;
+-	return _execute('check_ip', "$if $ip");
++sub check_ip($$$) {
++	my $if  = shift;
++	my $ip  = shift;
++	my $eni = shift;
++	return _execute('check_ip', "$if $ip $eni");
+ }
+ 
+ 
+-=item configure_ip($if, $ip)
++=item configure_ip($if, $ip, $eni)
+ 
+ Check if the IP $ip is configured on interface $if. If not, configure it and
+ send arp requests to notify other hosts.
+@@ -42,14 +43,15 @@
+ 
+ =cut
+ 
+-sub configure_ip($$) {
+-	my $if = shift;
+-	my $ip = shift;
+-	return _execute('configure_ip', "$if $ip");
++sub configure_ip($$$) {
++	my $if  = shift;
++	my $ip  = shift;
++	my $eni = shift;
++	return _execute('configure_ip', "$if $ip $eni");
+ }
+ 
+ 
+-=item clear_ip($if, $ip)
++=item clear_ip($if, $ip, $eni)
+ 
+ Remove the IP address $ip from interface $if.
+ 
+@@ -57,10 +59,11 @@
+ 
+ =cut
+ 
+-sub clear_ip($$) {
+-	my $if = shift;
+-	my $ip = shift;
+-	return _execute('clear_ip', "$if $ip");
++sub clear_ip($$$) {
++	my $if  = shift;
++	my $ip  = shift;
++	my $eni = shift;
++	return _execute('clear_ip', "$if $ip $eni");
+ }
+ 
+ 
+--- mysql-mmm-2.2.1/lib/Agent/Role.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Agent/Role.pm	2017-12-26 03:10:03.530145181 +0000
+@@ -37,9 +37,9 @@
+ 		}
+ 	}
+ 
+-	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip);
++	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip, $main::agent->eni);
+ 	if (!defined($res) || $res !~ /^OK/) {
+-		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
++		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, $main::agent->eni, defined($res) ? $res : 'undef');
+ 		return;
+ 	}
+ }
+@@ -67,7 +67,7 @@
+ 		}
+ 	}
+ 
+-	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip);
++	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip, $main::agent->eni);
+ 	if (!defined($res) || $res !~ /^OK/) {
+ 		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
+ 		return;
+@@ -91,7 +91,7 @@
+ 		}
+ 	}
+ 
+-	$res = MMM::Agent::Helpers::clear_ip($main::agent->interface, $self->ip);
++	$res = MMM::Agent::Helpers::clear_ip($main::agent->interface, $self->ip, $main::agent->eni);
+ 	if (!defined($res) || $res !~ /^OK/) {
+ 		FATAL sprintf("Couldn't clear IP '%s' from interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
+ 	}
+--- mysql-mmm-2.2.1/lib/Common/Config.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Common/Config.pm	2017-12-26 03:11:11.700144255 +0000
+@@ -63,6 +63,7 @@
+ 		'ip'					=> { 'required' => ['AGENT', 'MONITOR', 'TOOLS'] },
+ 		'mode'					=> { 'required' => ['AGENT', 'MONITOR'], 'values' => ['master', 'slave'] },
+ 		'peer'					=> { 'deprequired' => { 'mode' => 'master' }, 'refvalues' => 'host' },
++		'eni'   				=> { 'default' => 'null' },
+ 
+ 		'pid_path'				=> { 'required' => ['AGENT'] },
+ 		'bin_path'				=> { 'required' => ['AGENT'] },
+--- mysql-mmm-2.2.1/lib/Agent/Helpers/Actions.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Agent/Helpers/Actions.pm	2017-12-26 03:14:43.119141382 +0000
 @@ -19,17 +19,18 @@
  
  =over 4
  
 -=item check_ip($if, $ip)
-+=item check_ip($if, $eni, $ip)
++=item check_ip($if, $ip, $eni)
  
  Check if the IP $ip is configured on interface $if.
  
@@ -50,11 +161,11 @@
 -sub check_ip($$) {
 +sub check_ip($$$) {
  	my $if	= shift;
-+	my $eni = shift;
  	my $ip	= shift;
++	my $eni = shift;
  	
 -	if (MMM::Agent::Helpers::Network::check_ip($if, $ip)) {
-+	if (MMM::Agent::Helpers::Network::check_ip($if, $eni, $ip)) {
++	if (MMM::Agent::Helpers::Network::check_ip($if, $ip, $eni)) {
  		_exit_ok('IP address is configured');
  	}
  
@@ -63,7 +174,7 @@
  
  
 -=item configure_ip($if, $ip)
-+=item configure_ip($if, $eni, $ip)
++=item configure_ip($if, $ip, $eni)
  
  Check if the IP $ip is configured on interface $if. If not, configure it and
  send arp requests to notify other hosts.
@@ -73,16 +184,16 @@
 -sub configure_ip($$) {
 +sub configure_ip($$$) {
  	my $if	= shift;
-+	my $eni	= shift;
  	my $ip	= shift;
++	my $eni	= shift;
  	
 -	if (MMM::Agent::Helpers::Network::check_ip($if, $ip)) {
-+	if (MMM::Agent::Helpers::Network::check_ip($if, $eni, $ip)) {
++	if (MMM::Agent::Helpers::Network::check_ip($if, $ip, $eni)) {
  		_exit_ok('IP address is configured');
  	}
  
 -	if (!MMM::Agent::Helpers::Network::add_ip($if, $ip)) {
-+	if (!MMM::Agent::Helpers::Network::add_ip($if, $eni, $ip)) {
++	if (!MMM::Agent::Helpers::Network::add_ip($if, $ip, $eni)) {
  		_exit_error("Could not configure ip adress $ip on interface $if!");
  	}
  	MMM::Agent::Helpers::Network::send_arp($if, $ip);
@@ -91,7 +202,7 @@
  
  
 -=item clear_ip($if, $ip)
-+=item clear_ip($if, $eni, $ip)
++=item clear_ip($if, $ip, $eni)
  
  Remove the IP address $ip from interface $if.
  
@@ -100,27 +211,27 @@
 -sub clear_ip($$) {
 +sub clear_ip($$$) {
  	my $if	= shift;
-+	my $eni = shift;
  	my $ip	= shift;
++	my $eni = shift;
  	
 -	if (!MMM::Agent::Helpers::Network::check_ip($if, $ip)) {
-+	if (!MMM::Agent::Helpers::Network::check_ip($if, $eni, $ip)) {
++	if (!MMM::Agent::Helpers::Network::check_ip($if, $ip, $eni)) {
  		_exit_ok('IP address is not configured');
  	}
  
 -	MMM::Agent::Helpers::Network::clear_ip($if, $ip);
-+	MMM::Agent::Helpers::Network::clear_ip($if, $eni, $ip);
++	MMM::Agent::Helpers::Network::clear_ip($if, $ip, $eni);
  	_exit_ok();
  }
  
---- mysql-mmm-2.2.1/lib/Agent/Helpers/Network.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Agent/Helpers/Network.pm	2017-11-16 20:56:52.774223276 -0500
+--- mysql-mmm-2.2.1/lib/Agent/Helpers/Network.pm	2010-05-07 07:55:50.000000000 +0000
++++ mysql-mmm-2.2.1/lib/Agent/Helpers/Network.pm	2018-03-26 11:10:53.000000000 +0000
 @@ -23,20 +23,26 @@
  
  =over 4
  
 -=item check_ip($if, $ip)
-+=item check_ip($if, $eni, $ip)
++=item check_ip($if, $ip, $eni)
  
  Check if the IP $ip is configured on interface $if. Returns 0 if not, 1 otherwise.
  
@@ -131,27 +242,37 @@
 -	my $ip = shift;
 +sub check_ip($$$) {
 +	my $if  = shift;
-+	my $eni = shift;
 +	my $ip  = shift;
++	my $eni = shift;
  
  	my $output;
++	my $output_aws;
  	if ($OSNAME eq 'linux') {
  		$output = `/sbin/ip addr show dev $if`;
  		_exit_error("Could not check if ip $ip is configured on $if: $output") if ($? >> 8 == 255);
-+        if ($eni ne 'null') {
-+            $output = `aws ec2 describe-network-interfaces --network-interface-ids $eni |grep PrivateIpAddress`;
-+            _exit_error("Could not check if ip $ip is configured on aws $eni: $output") if ($? >> 0);
-+        }
-+        
++		if ($eni ne 'null') {
++			$output_aws = `aws ec2 describe-network-interfaces --network-interface-ids $eni |grep PrivateIpAddress`;
++			_exit_error("Could not check if ip $ip is configured on aws $eni: $output") if ($? >> 0);
++		}
  	}
  	elsif ($OSNAME eq 'solaris') {
  		# FIXME $if is not used here
-@@ -55,20 +61,25 @@
+@@ -50,25 +56,33 @@
+ 	else {
+ 		_exit_error("ERROR: Unsupported platform!");
+ 	}
+-
+-	return ($output =~ /\D+$ip\D+/) ? 1 : 0;
++	if ($eni eq 'null') {
++		return ($output =~ /\D+$ip\D+/) ? 1 : 0;
++	} else {
++		return (($output =~ /\D+$ip\D+/) && ($output_aws =~ /\D+$ip\D+/)) ? 1 : 0;
++	}
  }
  
  
 -=item add_ip($if, $ip)
-+=item add_ip($if, $eni, $ip)
++=item add_ip($if, $ip, $eni)
  
  Add IP $ip to the interface $if.
  
@@ -162,26 +283,26 @@
 -	my $ip = shift;
 +sub add_ip($$$) {
 +	my $if  = shift;
-+	my $eni = shift;
 +	my $ip  = shift;
++	my $eni = shift;
  
  	my $output;
  	if ($OSNAME eq 'linux') {
  		$output = `/sbin/ip addr add $ip/32 dev $if`;
  		_exit_error("Could not configure ip $ip on interface $if: $output") if ($? >> 8 == 255);
-+        if ($eni ne 'null') {
-+            $output = `aws ec2 assign-private-ip-addresses --network-interface-id $eni --private-ip-addresses $ip 2>&1`;
-+            _exit_error("Could not configure ip $ip on aws interface $eni: $output") if ($? >> 0);
-+        }
++		if ($eni ne 'null') {
++			$output = `aws ec2 assign-private-ip-addresses --network-interface-id $eni --private-ip-addresses $ip 2>&1`;
++			_exit_error("Could not configure ip $ip on aws interface $eni: $output") if ($? >> 0);
++		}
  	}
  	elsif ($OSNAME eq 'solaris') {
  		$output = `/usr/sbin/ifconfig $if addif $ip`;
-@@ -87,24 +98,29 @@
+@@ -87,24 +101,29 @@
  	else {
  		_exit_error("ERROR: Unsupported platform!");
  	}
 -	return check_ip($if, $ip);
-+	return check_ip($if, $eni, $ip);
++	return check_ip($if, $ip, $eni);
  }
  
  
@@ -197,128 +318,17 @@
 -	my $ip = shift;
 +sub clear_ip($$$) {
 +	my $if  = shift;
-+	my $eni = shift;
 +	my $ip  = shift;
++	my $eni = shift;
  
  	my $output;
  	if ($OSNAME eq 'linux') {
  		$output = `/sbin/ip addr del $ip/32 dev $if`;
  		_exit_error("Could not remove ip $ip from interface $if: $output") if ($? >> 8 == 255);
-+        if ($eni ne 'null') {
-+            $output = `aws ec2 unassign-private-ip-addresses --network-interface-id $eni --private-ip-addresses $ip 2>&1`;
-+            _exit_error("Could not configure ip $ip on aws interface $eni: $output") if ($? >> 0);
-+        }
++		if ($eni ne 'null') {
++			$output = `aws ec2 unassign-private-ip-addresses --network-interface-id $eni --private-ip-addresses $ip 2>&1`;
++			_exit_error("Could not remove ip $ip on aws interface $eni: $output") if ($? >> 0);
++		}
  	}
  	elsif ($OSNAME eq 'solaris') {
  		$output = `/usr/sbin/ifconfig $if removeif $ip`;
---- mysql-mmm-2.2.1/lib/Agent/Helpers.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Agent/Helpers.pm	2017-11-16 03:25:16.462080690 -0500
-@@ -18,7 +18,7 @@
- 
- =over 4
- 
--=item check_ip($if, $ip)
-+=item check_ip($if, $eni, $ip)
- 
- Check if the IP $ip is configured on interface $if.
- 
-@@ -26,14 +26,15 @@
- 
- =cut
- 
--sub check_ip($$) {
--	my $if = shift;
--	my $ip = shift;
--	return _execute('check_ip', "$if $ip");
-+sub check_ip($$$) {
-+	my $if  = shift;
-+	my $eni = shift;
-+	my $ip  = shift;
-+	return _execute('check_ip', "$if $eni $ip");
- }
- 
- 
--=item configure_ip($if, $ip)
-+=item configure_ip($if, $eni, $ip)
- 
- Check if the IP $ip is configured on interface $if. If not, configure it and
- send arp requests to notify other hosts.
-@@ -42,14 +43,15 @@
- 
- =cut
- 
--sub configure_ip($$) {
--	my $if = shift;
--	my $ip = shift;
--	return _execute('configure_ip', "$if $ip");
-+sub configure_ip($$$) {
-+	my $if  = shift;
-+	my $eni = shift;
-+	my $ip  = shift;
-+	return _execute('configure_ip', "$if $eni $ip");
- }
- 
- 
--=item clear_ip($if, $ip)
-+=item clear_ip($if, $eni, $ip)
- 
- Remove the IP address $ip from interface $if.
- 
-@@ -57,10 +59,11 @@
- 
- =cut
- 
--sub clear_ip($$) {
--	my $if = shift;
--	my $ip = shift;
--	return _execute('clear_ip', "$if $ip");
-+sub clear_ip($$$) {
-+	my $if  = shift;
-+	my $eni = shift;
-+	my $ip  = shift;
-+	return _execute('clear_ip', "$if $eni $ip");
- }
- 
- 
---- mysql-mmm-2.2.1/lib/Agent/Role.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Agent/Role.pm	2017-11-16 04:30:35.833027429 -0500
-@@ -37,9 +37,9 @@
- 		}
- 	}
- 
--	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip);
-+	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $main::agent->eni, $self->ip);
- 	if (!defined($res) || $res !~ /^OK/) {
--		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
-+		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, $main::agent->eni, defined($res) ? $res : 'undef');
- 		return;
- 	}
- }
-@@ -67,7 +67,7 @@
- 		}
- 	}
- 
--	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $self->ip);
-+	$res = MMM::Agent::Helpers::configure_ip($main::agent->interface, $main::agent->eni, $self->ip);
- 	if (!defined($res) || $res !~ /^OK/) {
- 		FATAL sprintf("Couldn't configure IP '%s' on interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
- 		return;
-@@ -91,7 +91,7 @@
- 		}
- 	}
- 
--	$res = MMM::Agent::Helpers::clear_ip($main::agent->interface, $self->ip);
-+	$res = MMM::Agent::Helpers::clear_ip($main::agent->interface, $main::agent->eni, $self->ip);
- 	if (!defined($res) || $res !~ /^OK/) {
- 		FATAL sprintf("Couldn't clear IP '%s' from interface '%s': %s", $self->ip, $main::agent->interface, defined($res) ? $res : 'undef');
- 	}
---- mysql-mmm-2.2.1/lib/Common/Config.pm	2010-05-07 03:55:50.000000000 -0400
-+++ mysql-mmm-2.2.2/lib/Common/Config.pm	2017-11-16 09:50:19.050766749 -0500
-@@ -63,6 +63,7 @@
- 		'ip'					=> { 'required' => ['AGENT', 'MONITOR', 'TOOLS'] },
- 		'mode'					=> { 'required' => ['AGENT', 'MONITOR'], 'values' => ['master', 'slave'] },
- 		'peer'					=> { 'deprequired' => { 'mode' => 'master' }, 'refvalues' => 'host' },
-+		'eni'   				=> { 'default' => 'null' },
- 
- 		'pid_path'				=> { 'required' => ['AGENT'] },
- 		'bin_path'				=> { 'required' => ['AGENT'] },
