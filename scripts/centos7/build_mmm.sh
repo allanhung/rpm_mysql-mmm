@@ -12,5 +12,6 @@ rpm -i mysql-mmm-2.2.1-15.el7.src.rpm
 /bin/cp -f /usr/local/src/build/centos7/mysql-mmm.spec.patch $RPMBUILDROOT/SPECS/
 /bin/cp -f /usr/local/src/build/centos7/mmm_aws.patch $RPMBUILDROOT/SOURCES/
 /bin/cp -f /usr/local/src/build/centos7/mmm_bin_aws.patch $RPMBUILDROOT/SOURCES/
+/bin/cp -f /usr/local/src/build/centos7/mmm_multi_source.patch $RPMBUILDROOT/SOURCES/
 cd $RPMBUILDROOT/SPECS && patch -p1 < mysql-mmm.spec.patch
 rpmbuild -bb $RPMBUILDROOT/SPECS/mysql-mmm.spec

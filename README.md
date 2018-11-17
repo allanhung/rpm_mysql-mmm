@@ -17,7 +17,7 @@ docker run --name=mmm_build --rm -ti -v $(pwd)/rpms:/root/rpmbuild/RPMS/x86_64 -
 
 for centos 7
 ```sh
-docker run --name=mmm_build --rm -ti -v $(pwd)/rpms:/root/rpmbuild/RPMS/x86_64 -v $(pwd)/rpms:/root/rpmbuild/RPMS/noarch -v $(pwd)/scripts:/usr/local/src/build centos:6 /bin/bash -c "/usr/local/src/build/centos6/build_mmm.sh"
+docker run --name=mmm_build --rm -ti -v $(pwd)/rpms:/root/rpmbuild/RPMS/x86_64 -v $(pwd)/rpms:/root/rpmbuild/RPMS/noarch -v $(pwd)/scripts:/usr/local/src/build centos:7 /bin/bash -c "/usr/local/src/build/centos7/build_mmm.sh"
 ```
 
 # Install

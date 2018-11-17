@@ -1,0 +1,336 @@
+From b069c6426be9ac1ca8ee644a15ba2b79b8290471 Mon Sep 17 00:00:00 2001
+From: allan <hung.allan@gmail.com>
+Date: Sat, 17 Nov 2018 14:08:53 +0000
+Subject: [PATCH] mmm multi source replication
+
+---
+ bin/tools/create_snapshot     |  3 ++-
+ lib/Agent/Agent.pm            | 10 +++++++++-
+ lib/Agent/Helpers/Actions.pm  | 18 ++++++++++++++++--
+ lib/Agent/Helpers/Network.pm  |  6 +++---
+ lib/Common/Config.pm          |  1 +
+ lib/Monitor/Checker/Checks.pm | 18 ++++++++++++++++--
+ lib/Monitor/ChecksStatus.pm   |  2 +-
+ lib/Monitor/Monitor.pm        | 19 +++++++++++++++++--
+ lib/Tools/MySQL.pm            | 10 +++++++++-
+ lib/Tools/Snapshot/MySQL.pm   | 11 +++++++++--
+ 10 files changed, 83 insertions(+), 15 deletions(-)
+
+diff --git a/bin/tools/create_snapshot b/bin/tools/create_snapshot
+index 7538789..2b10ed5 100755
+--- a/bin/tools/create_snapshot
++++ b/bin/tools/create_snapshot
+@@ -24,6 +24,7 @@ sub create_snapshot {
+ 	}
+ 
+ 	my $host		= $config->{host}->{$this};
++	my $mmm_channel = $host->{mmm_channel};
+ 	my $dump_dir	= $host->{lvm_mount_dir};
+ 
+ 	system ('mkdir', '-p', $dump_dir);
+@@ -48,7 +49,7 @@ sub create_snapshot {
+ 	# Get position info
+ 	my $pos_info = {};
+ 	$pos_info->{host} = $config->{this};
+-	$res = MMM::Tools::Snapshot::MySQL::get_pos_info($dbh, $pos_info);
++	$res = MMM::Tools::Snapshot::MySQL::get_pos_info($dbh, $pos_info, $mmm_channel);
+ 	return "ERROR: Can't get position info: $res" unless ($res =~ /^OK/);
+ 
+ 	# Create and mount snapshot
+diff --git a/lib/Agent/Agent.pm b/lib/Agent/Agent.pm
+index fe5a6f0..4219447 100644
+--- a/lib/Agent/Agent.pm
++++ b/lib/Agent/Agent.pm
+@@ -36,6 +36,7 @@ struct 'MMM::Agent::Agent' => {
+ 	mysql_port			=> '$',
+ 	mysql_user			=> '$',
+ 	mysql_password		=> '$',
++	mmm_channel		=> '$',
+ 	writer_role			=> '$',
+ 	bin_path			=> '$',
+ 
+@@ -125,6 +126,7 @@ sub cmd_get_system_status($) {
+ 	my $master_ip	= '';
+ 
+     my $dbh;
++    my $cmd_slave_status;
+ CONNECT: {
+     DEBUG "Connecting to mysql";
+     $dbh   = DBI->connect($dsn, $self->mysql_user, $self->mysql_password, { PrintError => 0 });
+@@ -134,7 +136,12 @@ CONNECT: {
+     }
+ }
+ 
+-    my $slave_status = $dbh->selectrow_hashref('SHOW SLAVE STATUS');
++    if ($self->mmm_channel eq 'null') {
++        $cmd_slave_status = 'SHOW SLAVE STATUS';
++    } else {
++        $cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" + $self->mmm_channel + "'";
++    }
++    my $slave_status = $dbh->selectrow_hashref($cmd_slave_status);
+ 	$master_ip = $slave_status->{Master_Host} if (defined($slave_status));
+ 
+ 	my @roles;
+@@ -272,6 +279,7 @@ sub from_config($%) {
+ 	$self->mysql_port		($host->{mysql_port});
+ 	$self->mysql_user		($host->{agent_user});
+ 	$self->mysql_password	($host->{agent_password});
++	$self->mmm_channel	($host->{mmm_channel});
+ 	$self->writer_role		($config->{active_master_role});
+ 	$self->bin_path			($host->{bin_path});
+ }
+diff --git a/lib/Agent/Helpers/Actions.pm b/lib/Agent/Helpers/Actions.pm
+index 80df068..e5a2ffb 100644
+--- a/lib/Agent/Helpers/Actions.pm
++++ b/lib/Agent/Helpers/Actions.pm
+@@ -252,6 +252,8 @@ sub sync_with_master() {
+ 	my $peer = $main::config->{host}->{$this}->{peer};
+ 	_exit_error('No peer defined') unless defined($peer);
+ 
++        my $mmm_channel = $main::config->{host}->{$this}->{mmm_channel};
++        my $cmd_slave_status;
+ 	my ($peer_host, $peer_port, $peer_user, $peer_password)	= _get_connection_info($peer);
+ 	_exit_error('No peer connection info') unless defined($peer_host);
+ 
+@@ -274,7 +276,12 @@ sub sync_with_master() {
+ 		$peer_dbh->disconnect;
+ 	} 
+ 	unless (defined($wait_log)) {
+-		my $slave_status = $this_dbh->selectrow_hashref('SHOW SLAVE STATUS');
++		if ($mmm_channel eq 'null') {
++			$cmd_slave_status = 'SHOW SLAVE STATUS';
++		} else {
++			$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++		}
++		my $slave_status = $this_dbh->selectrow_hashref($cmd_slave_status);
+ 		_exit_error('SQL Query Error: ' . $this_dbh->errstr) unless defined($slave_status);
+ 		$wait_log = $slave_status->{Master_Log_File};
+ 		$wait_pos = $slave_status->{Read_Master_Log_Pos};
+@@ -305,6 +312,8 @@ sub set_active_master($) {
+ 
+ 	_exit_error('New master is equal to local host!?') if ($this eq $new_peer);
+ 
++        my $mmm_channel = $main::config->{host}->{$this}->{mmm_channel};
++	my $cmd_slave_status;
+ 	# Get local connection info
+ 	my ($this_host, $this_port, $this_user, $this_password)	= _get_connection_info($this);
+ 	_exit_error("No connection info for local host '$this_host'") unless defined($this_host);
+@@ -318,7 +327,12 @@ sub set_active_master($) {
+ 	_exit_error("Can't connect to MySQL (host = $this_host:$this_port, user = $this_user)! " . $DBI::errstr) unless ($this_dbh);
+ 
+ 	# Get slave info
+-	my $slave_status = $this_dbh->selectrow_hashref('SHOW SLAVE STATUS');
++	if ($mmm_channel eq 'null') {
++		$cmd_slave_status = 'SHOW SLAVE STATUS';
++	} else {
++		$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++	}
++	my $slave_status = $this_dbh->selectrow_hashref($cmd_slave_status);
+ 	_exit_error('SQL Query Error: ' . $this_dbh->errstr) unless defined($slave_status);
+ 
+ 	my $wait_log	= $slave_status->{Master_Log_File};
+diff --git a/lib/Agent/Helpers/Network.pm b/lib/Agent/Helpers/Network.pm
+index d5ef16b..3adfc6f 100644
+--- a/lib/Agent/Helpers/Network.pm
++++ b/lib/Agent/Helpers/Network.pm
+@@ -29,7 +29,7 @@ Check if the IP $ip is configured on interface $if. Returns 0 if not, 1 otherwis
+ 
+ =cut
+ 
+-sub check_ip($$) {
++sub check_ip($$$) {
+ 	my $if = shift;
+ 	my $ip = shift;
+ 	my $eni = shift;
+@@ -76,7 +76,7 @@ Add IP $ip to the interface $if.
+ 
+ =cut
+ 
+-sub add_ip($$) {
++sub add_ip($$$) {
+ 	my $if = shift;
+ 	my $ip = shift;
+ 	my $eni = shift;
+@@ -121,7 +121,7 @@ Remove the IP $ip from the interface $if.
+ 
+ =cut
+ 
+-sub clear_ip($$) {
++sub clear_ip($$$) {
+ 	my $if = shift;
+ 	my $ip = shift;
+ 	my $eni = shift;
+diff --git a/lib/Common/Config.pm b/lib/Common/Config.pm
+index 3c20825..aab3aa8 100644
+--- a/lib/Common/Config.pm
++++ b/lib/Common/Config.pm
+@@ -74,6 +74,7 @@ our $RULESET = {
+ 		'mysql_pidfile'			=> { 'default' => '/var/run/mysqld/mysqld.pid' },
+ 		'mysql_rcscript'		=> { 'default' => '/etc/init.d/mysql' },
+ 		'mysql_cnf'				=> { 'default' => '/etc/my.cnf' },
++		'mmm_channel'			=> { 'default' => 'null' },
+ 
+ 		'agent_user'			=> { 'required' => ['AGENT'] },
+ 		'agent_password'		=> { 'required' => ['AGENT'] },
+diff --git a/lib/Monitor/Checker/Checks.pm b/lib/Monitor/Checker/Checks.pm
+index 6e200b6..83f8bd3 100644
+--- a/lib/Monitor/Checker/Checks.pm
++++ b/lib/Monitor/Checker/Checks.pm
+@@ -156,6 +156,8 @@ Check the replication backlog on host $host.
+ sub rep_backlog($$) {
+ 	my $timeout	= shift;
+ 	my $host	= shift;
++        my $mmm_channel = $main::config->{host}->{$host}->{mmm_channel};
++        my $cmd_slave_status;
+ 
+ 	my ($peer_host, $peer_port, $peer_user, $peer_password) = _get_connection_info($host);
+ 	return "ERROR: Invalid host '$host'" unless ($peer_host);
+@@ -180,7 +182,12 @@ sub rep_backlog($$) {
+ 		}
+ 	
+ 		# Check server (replication backlog)
+-		my $sth = $dbh->prepare('SHOW SLAVE STATUS');
++		if ($mmm_channel eq 'null') {
++			$cmd_slave_status = 'SHOW SLAVE STATUS';
++		} else {
++			$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++		}
++		my $sth = $dbh->prepare($cmd_slave_status);
+ 		my $res = $sth->execute;
+ 
+ 		if ($dbh->err) {
+@@ -239,6 +246,8 @@ Check if the mysql slave threads on host $host are running.
+ sub rep_threads($$) {
+ 	my $timeout	= shift;
+ 	my $host	= shift;
++        my $mmm_channel = $main::config->{host}->{$host}->{mmm_channel};
++        my $cmd_slave_status;
+ 
+ 	my ($peer_host, $peer_port, $peer_user, $peer_password) = _get_connection_info($host);
+ 	return "ERROR: Invalid host '$host'" unless ($peer_host);
+@@ -260,7 +269,12 @@ sub rep_threads($$) {
+ 		return "UNKNOWN: Connect error (host = $peer_host:$peer_port, user = $peer_user)! " . $DBI::errstr unless ($dbh);
+ 	
+ 		# Check server (replication backlog)
+-		my $sth = $dbh->prepare('SHOW SLAVE STATUS');
++		if ($mmm_channel eq 'null') {
++			$cmd_slave_status = 'SHOW SLAVE STATUS';
++		} else {
++			$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++		}
++		my $sth = $dbh->prepare($cmd_slave_status);
+ 		my $res = $sth->execute;
+ 
+ 		if ($dbh->err) {
+diff --git a/lib/Monitor/ChecksStatus.pm b/lib/Monitor/ChecksStatus.pm
+index a68e159..b39be24 100644
+--- a/lib/Monitor/ChecksStatus.pm
++++ b/lib/Monitor/ChecksStatus.pm
+@@ -91,7 +91,7 @@ sub mysql($$) {
+ }
+ 
+ 
+-=item rep_threads($host)
++=item rep_threads($host, $mmm_channel)
+ 
+ Get state of check "rep_threads" on host $host.
+ 
+diff --git a/lib/Monitor/Monitor.pm b/lib/Monitor/Monitor.pm
+index 7cf7dbf..74b92ac 100644
+--- a/lib/Monitor/Monitor.pm
++++ b/lib/Monitor/Monitor.pm
+@@ -281,6 +281,9 @@ sub check_master_configuration($) {
+ 	my $dsn1	= sprintf("DBI:mysql:host=%s;port=%s;mysql_connect_timeout=3", $master1_info->{ip}, $master1_info->{mysql_port});
+ 	my $dsn2	= sprintf("DBI:mysql:host=%s;port=%s;mysql_connect_timeout=3", $master2_info->{ip}, $master2_info->{mysql_port});
+ 
++	my $cmd1_slave_status;
++	my $cmd2_slave_status;
++
+ 	my $eintr	= EINTR;
+ 
+ 	my $dbh1;
+@@ -305,8 +308,20 @@ CONNECT2: {
+ 
+ 
+ 	# Check replication peers
+-	my $slave_status1 = $dbh1->selectrow_hashref('SHOW SLAVE STATUS');
+-	my $slave_status2 = $dbh2->selectrow_hashref('SHOW SLAVE STATUS');
++	
++	if ($master1_info->{mmm_channel} eq 'null') {
++		$cmd1_slave_status = 'SHOW SLAVE STATUS';
++	} else {
++		$cmd1_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $master1_info->{mmm_channel} . "'";
++	}
++	if ($master2_info->{mmm_channel} eq 'null') {
++		$cmd2_slave_status = 'SHOW SLAVE STATUS';
++	} else {
++		$cmd2_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $master1_info->{mmm_channel} . "'";
++	}
++
++	my $slave_status1 = $dbh1->selectrow_hashref($cmd1_slave_status);
++	my $slave_status2 = $dbh2->selectrow_hashref($cmd2_slave_status);
+ 
+ 	WARN "$master1 is not replicating from $master2" if (!defined($slave_status1) || $slave_status1->{Master_Host} ne $master2_info->{ip});
+ 	WARN "$master2 is not replicating from $master1" if (!defined($slave_status2) || $slave_status2->{Master_Host} ne $master1_info->{ip});
+diff --git a/lib/Tools/MySQL.pm b/lib/Tools/MySQL.pm
+index 505c162..cb766bd 100644
+--- a/lib/Tools/MySQL.pm
++++ b/lib/Tools/MySQL.pm
+@@ -222,9 +222,12 @@ sub _connect($$$$) {
+ 
+ sub get_master_host($) {
+ 	my $host_name = shift;
++	my $mmm_channel = shift;
++        my $cmd_slave_satatus;
+ 
+ 	# Get connection information
+ 	my ($host, $port, $user, $password)	= _get_connection_info($host_name);
++        my $mmm_channel = $main::config->{host}->{$host}->{mmm_channel};
+ 	unless (defined($host)) {
+ 		ERROR "No connection info for host '$host_name'";
+ 		return undef;
+@@ -238,7 +241,12 @@ sub get_master_host($) {
+ 	}
+ 
+ 	# Get slave status
+-	my $res = $dbh->selectrow_hashref('SHOW SLAVE STATUS');
++	if ($mmm_channel eq 'null') {
++		$cmd_slave_status = 'SHOW SLAVE STATUS';
++	} else {
++		$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++	}
++	my $res = $dbh->selectrow_hashref($cmd_slave_status);
+ 	return "ERROR: Can't get slave status for host '$host_name'! Error: " . $dbh->errstr unless ($res);
+ 
+ 	# Disconnect
+diff --git a/lib/Tools/Snapshot/MySQL.pm b/lib/Tools/Snapshot/MySQL.pm
+index 85300c0..f8f8d6e 100644
+--- a/lib/Tools/Snapshot/MySQL.pm
++++ b/lib/Tools/Snapshot/MySQL.pm
+@@ -27,9 +27,11 @@ sub unlock_tables($) {
+ 	return $dbh->do('UNLOCK TABLES');
+ }
+ 
+-sub get_pos_info($$) {
++sub get_pos_info($$$) {
+ 	my $dbh = shift;
+ 	my $pos_info = shift;
++	my $mmm_channel = shift;
++        my $cmd_slave_satatus;
+ 	
+ 	# Get master status info
+ 	my $res = $dbh->selectrow_hashref('SHOW MASTER STATUS');
+@@ -37,7 +39,12 @@ sub get_pos_info($$) {
+ 	$pos_info->{master} = $res;
+ 
+ 	# Get slave status info
+-	$res = $dbh->selectrow_hashref('SHOW SLAVE STATUS');
++	if ($mmm_channel eq 'null') {
++		$cmd_slave_status = 'SHOW SLAVE STATUS';
++	} else {
++		$cmd_slave_status = "SHOW SLAVE STATUS FOR CHANNEL '" . $mmm_channel . "'";
++	}
++	$res = $dbh->selectrow_hashref($cmd_slave_status);
+ 	return "ERROR: Can't get slave status information! Error: " . $dbh->errstr if (defined($dbh->err));
+ 	$res = {} unless ($res);
+ 	$pos_info->{slave} = $res;

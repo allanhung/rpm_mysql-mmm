@@ -1,28 +1,22 @@
---- a/mysql-mmm.spec	2017-11-17 02:54:55.265175953 +0000
-+++ b/mysql-mmm.spec	2017-11-17 03:14:18.873160140 +0000
-@@ -1,6 +1,6 @@
- Name: mysql-mmm
- Version: 2.2.1
--Release: 2%{?dist}
-+Release: 4%{?dist}
- Summary: Multi-Master Replication Manager for MySQL
- License: GPLv2
- URL: http://mysql-mmm.org
-@@ -22,6 +22,8 @@
- Provides: mysql-master-master = %{version}-%{release}
- 
+--- a/mysql-mmm.spec	2018-05-04 18:55:29.000000000 +0000
++++ b/mysql-mmm.spec	2018-11-17 14:31:19.982837485 +0000
+@@ -24,6 +24,9 @@
  Patch0: mysql-mmm-2.1.0-paths.patch
-+Patch1: mmm_aws.patch
-+Patch2: mmm_bin_aws.patch
+ Patch1: mysql-mmm-fix-bug-with-newer-net-arp.patch
+ Patch2: mysql-mmm-fix-cve-remote-command-injection.patch
++Patch3: mmm_aws.patch
++Patch4: mmm_bin_aws.patch
++Patch5: mmm_multi_source.patch
  
  %description
  MMM (MySQL Master-Master Replication Manager) is a set of flexible scripts
-@@ -81,6 +83,8 @@
- 
- 
+@@ -85,6 +88,9 @@
  %patch0 -p1
-+%patch1 -p1
-+%patch2 -p1
+ %patch1 -p1
+ %patch2 -p1
++%patch3 -p1
++%patch4 -p1
++%patch5 -p1
  
  
  %build
